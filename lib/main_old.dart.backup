@@ -1,0 +1,908 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+void main() {
+  runApp(const MyApp());
+}
+
+// Models
+class Song {
+  final String id;
+  String title;
+  String artist;
+  String lyrics;
+
+  Song({
+    required this.id,
+    required this.title,
+    required this.artist,
+    required this.lyrics,
+  });
+}
+
+// Chord Transposition Utility
+class ChordTransposer {
+  static const List<String> chromaticScale = [
+    'C',
+    'C#',
+    'D',
+    'D#',
+    'E',
+    'F',
+    'F#',
+    'G',
+    'G#',
+    'A',
+    'A#',
+    'B',
+  ];
+
+  static const Map<String, String> alternateChords = {
+    'Db': 'C#',
+    'Eb': 'D#',
+    'Gb': 'F#',
+    'Ab': 'G#',
+    'Bb': 'A#',
+  };
+
+  static String transposeChord(String chord, int semitones) {
+    if (chord.isEmpty) return chord;
+
+    // Extract the root note and suffix
+    String rootNote = '';
+    String suffix = '';
+
+    // Handle flats
+    if (chord.length >= 2 && chord[1] == 'b') {
+      rootNote = chord.substring(0, 2);
+      suffix = chord.length > 2 ? chord.substring(2) : '';
+    } else if (chord.length >= 2 && chord[1] == '#') {
+      rootNote = chord.substring(0, 2);
+      suffix = chord.length > 2 ? chord.substring(2) : '';
+    } else {
+      rootNote = chord[0];
+      suffix = chord.length > 1 ? chord.substring(1) : '';
+    }
+
+    // Convert flats to sharps
+    if (alternateChords.containsKey(rootNote)) {
+      rootNote = alternateChords[rootNote]!;
+    }
+
+    // Find current position
+    int currentIndex = chromaticScale.indexOf(rootNote);
+    if (currentIndex == -1) return chord;
+
+    // Calculate new position
+    int newIndex = (currentIndex + semitones) % 12;
+    if (newIndex < 0) newIndex += 12;
+
+    return chromaticScale[newIndex] + suffix;
+  }
+
+  static String transposeLine(String line, int semitones) {
+    // Match chords pattern (letters followed by optional modifiers)
+    final chordPattern = RegExp(
+      r'\b([A-G][#b]?(?:m|maj|min|dim|aug|sus|add|[0-9])*)\b',
+    );
+
+    return line.replaceAllMapped(chordPattern, (match) {
+      String chord = match.group(1)!;
+      return transposeChord(chord, semitones);
+    });
+  }
+
+  static String transposeText(String text, int semitones) {
+    if (semitones == 0) return text;
+
+    List<String> lines = text.split('\n');
+    return lines.map((line) => transposeLine(line, semitones)).join('\n');
+  }
+
+  // Check if text contains chords
+  static bool containsChords(String text) {
+    final chordPattern = RegExp(
+      r'\b([A-G][#b]?(?:m|maj|min|dim|aug|sus|add|[0-9])*)\b',
+    );
+    return chordPattern.hasMatch(text);
+  }
+}
+
+// Theme Notifier
+class ThemeNotifier extends ChangeNotifier {
+  ThemeMode _themeMode = ThemeMode.dark;
+
+  ThemeMode get themeMode => _themeMode;
+
+  void toggleTheme() {
+    _themeMode = _themeMode == ThemeMode.light
+        ? ThemeMode.dark
+        : ThemeMode.light;
+    notifyListeners();
+  }
+}
+
+class MyApp extends StatefulWidget {
+  const MyApp({super.key});
+
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  final ThemeNotifier _themeNotifier = ThemeNotifier();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: _themeNotifier,
+      builder: (context, _) {
+        return MaterialApp(
+          title: 'Chord Master',
+          debugShowCheckedModeBanner: false,
+          themeMode: _themeNotifier.themeMode,
+          theme: ThemeData(
+            useMaterial3: true,
+            brightness: Brightness.light,
+            colorScheme:
+                ColorScheme.fromSeed(
+                  seedColor: const Color(0xFF6366F1),
+                  brightness: Brightness.light,
+                ).copyWith(
+                  surface: const Color(0xFFFAFAFA),
+                  surfaceContainerHighest: const Color(0xFFE5E7EB),
+                ),
+            cardTheme: CardThemeData(
+              elevation: 2,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+            appBarTheme: const AppBarTheme(centerTitle: true, elevation: 0),
+          ),
+          darkTheme: ThemeData(
+            useMaterial3: true,
+            brightness: Brightness.dark,
+            colorScheme:
+                ColorScheme.fromSeed(
+                  seedColor: const Color(0xFF6366F1),
+                  brightness: Brightness.dark,
+                ).copyWith(
+                  surface: const Color(0xFF1A1A1A),
+                  surfaceContainerHighest: const Color(0xFF2D2D2D),
+                ),
+            cardTheme: CardThemeData(
+              elevation: 4,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+            appBarTheme: const AppBarTheme(centerTitle: true, elevation: 0),
+          ),
+          home: SongListScreen(themeNotifier: _themeNotifier),
+        );
+      },
+    );
+  }
+}
+
+// Song List Screen
+class SongListScreen extends StatefulWidget {
+  final ThemeNotifier themeNotifier;
+
+  const SongListScreen({super.key, required this.themeNotifier});
+
+  @override
+  State<SongListScreen> createState() => _SongListScreenState();
+}
+
+class _SongListScreenState extends State<SongListScreen> {
+  final List<Song> _songs = [
+    Song(
+      id: '1',
+      title: 'Sample Song',
+      artist: 'Demo Artist',
+      lyrics: '''[Verse 1]
+C        G        Am       F
+This is a sample song with chords
+C        G           F
+You can transpose these chords
+
+[Chorus]
+F        C        G        Am
+Sing along with the melody
+F        C             G
+Change the key as you need
+
+[Bridge]
+Dm       Em       F        G
+Select text to transpose parts
+C        Am       F        G
+Or transpose the whole song''',
+    ),
+  ];
+
+  void _addOrEditSong([Song? song]) async {
+    final result = await Navigator.push<Song>(
+      context,
+      MaterialPageRoute(builder: (context) => AddEditSongScreen(song: song)),
+    );
+
+    if (result != null) {
+      setState(() {
+        if (song == null) {
+          _songs.add(result);
+        } else {
+          int index = _songs.indexWhere((s) => s.id == result.id);
+          if (index != -1) {
+            _songs[index] = result;
+          }
+        }
+      });
+    }
+  }
+
+  void _deleteSong(Song song) {
+    setState(() {
+      _songs.removeWhere((s) => s.id == song.id);
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('${song.title} deleted'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text(
+          'Chord Master',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        actions: [
+          IconButton(
+            icon: Icon(
+              widget.themeNotifier.themeMode == ThemeMode.light
+                  ? Icons.dark_mode_rounded
+                  : Icons.light_mode_rounded,
+            ),
+            onPressed: widget.themeNotifier.toggleTheme,
+            tooltip: 'Toggle theme',
+          ),
+        ],
+      ),
+      body: _songs.isEmpty
+          ? Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.music_note_outlined,
+                    size: 80,
+                    color: theme.colorScheme.primary.withOpacity(0.5),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'No songs yet',
+                    style: theme.textTheme.headlineSmall?.copyWith(
+                      color: theme.colorScheme.onSurface.withOpacity(0.6),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Tap + to add your first song',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onSurface.withOpacity(0.4),
+                    ),
+                  ),
+                ],
+              ),
+            )
+          : ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: _songs.length,
+              itemBuilder: (context, index) {
+                final song = _songs[index];
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Card(
+                    child: InkWell(
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => SongDetailScreen(song: song),
+                          ),
+                        );
+                      },
+                      borderRadius: BorderRadius.circular(16),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 56,
+                              height: 56,
+                              decoration: BoxDecoration(
+                                color: theme.colorScheme.primaryContainer,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Icon(
+                                Icons.music_note,
+                                color: theme.colorScheme.onPrimaryContainer,
+                                size: 28,
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    song.title,
+                                    style: theme.textTheme.titleMedium
+                                        ?.copyWith(fontWeight: FontWeight.bold),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    song.artist,
+                                    style: theme.textTheme.bodyMedium?.copyWith(
+                                      color: theme.colorScheme.onSurface
+                                          .withOpacity(0.6),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            PopupMenuButton(
+                              icon: const Icon(Icons.more_vert),
+                              itemBuilder: (context) => [
+                                PopupMenuItem(
+                                  child: const Row(
+                                    children: [
+                                      Icon(Icons.edit),
+                                      SizedBox(width: 12),
+                                      Text('Edit'),
+                                    ],
+                                  ),
+                                  onTap: () {
+                                    Future.delayed(
+                                      Duration.zero,
+                                      () => _addOrEditSong(song),
+                                    );
+                                  },
+                                ),
+                                PopupMenuItem(
+                                  child: const Row(
+                                    children: [
+                                      Icon(Icons.delete, color: Colors.red),
+                                      SizedBox(width: 12),
+                                      Text(
+                                        'Delete',
+                                        style: TextStyle(color: Colors.red),
+                                      ),
+                                    ],
+                                  ),
+                                  onTap: () => _deleteSong(song),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => _addOrEditSong(),
+        icon: const Icon(Icons.add),
+        label: const Text('Add Song'),
+      ),
+    );
+  }
+}
+
+// Add/Edit Song Screen
+class AddEditSongScreen extends StatefulWidget {
+  final Song? song;
+
+  const AddEditSongScreen({super.key, this.song});
+
+  @override
+  State<AddEditSongScreen> createState() => _AddEditSongScreenState();
+}
+
+class _AddEditSongScreenState extends State<AddEditSongScreen> {
+  late TextEditingController _titleController;
+  late TextEditingController _artistController;
+  late TextEditingController _lyricsController;
+
+  @override
+  void initState() {
+    super.initState();
+    _titleController = TextEditingController(text: widget.song?.title ?? '');
+    _artistController = TextEditingController(text: widget.song?.artist ?? '');
+    _lyricsController = TextEditingController(text: widget.song?.lyrics ?? '');
+  }
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _artistController.dispose();
+    _lyricsController.dispose();
+    super.dispose();
+  }
+
+  void _saveSong() {
+    if (_titleController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter a song title'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    final song = Song(
+      id: widget.song?.id ?? DateTime.now().millisecondsSinceEpoch.toString(),
+      title: _titleController.text,
+      artist: _artistController.text,
+      lyrics: _lyricsController.text,
+    );
+
+    Navigator.pop(context, song);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.song == null ? 'Add Song' : 'Edit Song'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.check),
+            onPressed: _saveSong,
+            tooltip: 'Save',
+          ),
+        ],
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: _titleController,
+              decoration: InputDecoration(
+                labelText: 'Song Title',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                prefixIcon: const Icon(Icons.title),
+              ),
+              textCapitalization: TextCapitalization.words,
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _artistController,
+              decoration: InputDecoration(
+                labelText: 'Artist',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                prefixIcon: const Icon(Icons.person),
+              ),
+              textCapitalization: TextCapitalization.words,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Lyrics & Chords',
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Write chords on separate lines or inline with lyrics',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurface.withOpacity(0.6),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _lyricsController,
+              decoration: InputDecoration(
+                hintText:
+                    'Example:\n[Verse]\nC        G        Am\nYour lyrics here...',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                alignLabelWithHint: true,
+              ),
+              maxLines: 15,
+              style: const TextStyle(fontFamily: 'monospace'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// Song Detail Screen with Transpose
+class SongDetailScreen extends StatefulWidget {
+  final Song song;
+
+  const SongDetailScreen({super.key, required this.song});
+
+  @override
+  State<SongDetailScreen> createState() => _SongDetailScreenState();
+}
+
+class _SongDetailScreenState extends State<SongDetailScreen> {
+  int _transposeValue = 0;
+  String? _selectedText;
+  bool _isSelecting = false;
+  int _selectionStart = 0;
+  int _selectionEnd = 0;
+
+  // History for undo/redo
+  final List<String> _history = [];
+  int _historyIndex = -1;
+  final FocusNode _focusNode = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    // Initialize history with current lyrics
+    _history.add(widget.song.lyrics);
+    _historyIndex = 0;
+  }
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  String get displayedLyrics {
+    return ChordTransposer.transposeText(widget.song.lyrics, _transposeValue);
+  }
+
+  bool get _hasChords {
+    if (_selectedText == null || _selectedText!.isEmpty) return false;
+    return ChordTransposer.containsChords(_selectedText!);
+  }
+
+  bool get canUndo => _historyIndex > 0;
+  bool get canRedo => _historyIndex < _history.length - 1;
+
+  void _addToHistory(String lyrics) {
+    // Remove any history after current index
+    if (_historyIndex < _history.length - 1) {
+      _history.removeRange(_historyIndex + 1, _history.length);
+    }
+
+    // Add new state
+    _history.add(lyrics);
+    _historyIndex++;
+
+    // Limit history size to 50 entries
+    if (_history.length > 50) {
+      _history.removeAt(0);
+      _historyIndex--;
+    }
+  }
+
+  void _undo() {
+    if (canUndo) {
+      setState(() {
+        _historyIndex--;
+        widget.song.lyrics = _history[_historyIndex];
+        _selectedText = null;
+        _isSelecting = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Undo'),
+          behavior: SnackBarBehavior.floating,
+          duration: Duration(seconds: 1),
+        ),
+      );
+    }
+  }
+
+  void _redo() {
+    if (canRedo) {
+      setState(() {
+        _historyIndex++;
+        widget.song.lyrics = _history[_historyIndex];
+        _selectedText = null;
+        _isSelecting = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Redo'),
+          behavior: SnackBarBehavior.floating,
+          duration: Duration(seconds: 1),
+        ),
+      );
+    }
+  }
+
+  void _handleKeyEvent(KeyEvent event) {
+    if (event is KeyDownEvent) {
+      final isControlPressed = HardwareKeyboard.instance.isControlPressed;
+
+      if (isControlPressed && event.logicalKey == LogicalKeyboardKey.keyZ) {
+        _undo();
+      } else if (isControlPressed &&
+          event.logicalKey == LogicalKeyboardKey.keyY) {
+        _redo();
+      }
+    }
+  }
+
+  void _transpose(int semitones) {
+    setState(() {
+      _transposeValue += semitones;
+      if (_transposeValue > 11) _transposeValue = 0;
+      if (_transposeValue < 0) _transposeValue = 11;
+    });
+  }
+
+  void _reset() {
+    setState(() {
+      _transposeValue = 0;
+      _selectedText = null;
+      _isSelecting = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return KeyboardListener(
+      focusNode: _focusNode,
+      onKeyEvent: _handleKeyEvent,
+      autofocus: true,
+      child: Scaffold(
+        appBar: AppBar(
+          title: Column(
+            children: [
+              Text(
+                widget.song.title,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              Text(widget.song.artist, style: theme.textTheme.bodySmall),
+            ],
+          ),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.undo),
+              onPressed: canUndo ? _undo : null,
+              tooltip: 'Undo (Ctrl+Z)',
+            ),
+            IconButton(
+              icon: const Icon(Icons.redo),
+              onPressed: canRedo ? _redo : null,
+              tooltip: 'Redo (Ctrl+Y)',
+            ),
+          ],
+        ),
+        body: Column(
+          children: [
+            // Transpose Controls
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerHighest,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.05),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      IconButton.filledTonal(
+                        onPressed: () => _transpose(-1),
+                        icon: const Icon(Icons.remove),
+                        tooltip: 'Transpose down',
+                      ),
+                      const SizedBox(width: 16),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 24,
+                          vertical: 12,
+                        ),
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.primaryContainer,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Column(
+                          children: [
+                            Text(
+                              'Transpose',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.onPrimaryContainer,
+                              ),
+                            ),
+                            Text(
+                              _transposeValue == 0
+                                  ? 'Original'
+                                  : '${_transposeValue > 0 ? '+' : ''}$_transposeValue',
+                              style: theme.textTheme.titleLarge?.copyWith(
+                                fontWeight: FontWeight.bold,
+                                color: theme.colorScheme.onPrimaryContainer,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      IconButton.filledTonal(
+                        onPressed: () => _transpose(1),
+                        icon: const Icon(Icons.add),
+                        tooltip: 'Transpose up',
+                      ),
+                    ],
+                  ),
+                  if (_transposeValue != 0) ...[
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      onPressed: _reset,
+                      icon: const Icon(Icons.refresh, size: 18),
+                      label: const Text('Reset'),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+
+            // Lyrics Display
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(20),
+                child: SelectableText(
+                  displayedLyrics,
+                  style: TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 14,
+                    height: 1.6,
+                    color: theme.colorScheme.onSurface,
+                  ),
+                  onSelectionChanged: (selection, cause) {
+                    if (selection.start != selection.end) {
+                      setState(() {
+                        _selectionStart = selection.start;
+                        _selectionEnd = selection.end;
+                        _selectedText = displayedLyrics.substring(
+                          selection.start,
+                          selection.end,
+                        );
+                        _isSelecting = true;
+                      });
+                    } else {
+                      setState(() {
+                        _selectedText = null;
+                        _isSelecting = false;
+                        _selectionStart = 0;
+                        _selectionEnd = 0;
+                      });
+                    }
+                  },
+                ),
+              ),
+            ),
+
+            // Selection Transpose Controls
+            if (_selectedText != null && _isSelecting && _hasChords)
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.secondaryContainer,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.1),
+                      blurRadius: 8,
+                      offset: const Offset(0, -2),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Transpose Selected Text',
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: theme.colorScheme.onSecondaryContainer,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 8,
+                      alignment: WrapAlignment.center,
+                      children: [
+                        for (int i = -6; i <= 6; i++)
+                          if (i != 0)
+                            FilledButton.tonal(
+                              onPressed: () {
+                                setState(() {
+                                  // Transpose the selected text
+                                  final transposed =
+                                      ChordTransposer.transposeText(
+                                        _selectedText!,
+                                        i,
+                                      );
+
+                                  // Update the original lyrics with transposed selection
+                                  // Calculate the position in the original untransposed lyrics
+                                  final originalBefore = widget.song.lyrics
+                                      .substring(
+                                        0,
+                                        _selectionStart.clamp(
+                                          0,
+                                          widget.song.lyrics.length,
+                                        ),
+                                      );
+                                  final originalAfter =
+                                      _selectionEnd < widget.song.lyrics.length
+                                      ? widget.song.lyrics.substring(
+                                          _selectionEnd,
+                                        )
+                                      : '';
+
+                                  widget.song.lyrics =
+                                      originalBefore +
+                                      transposed +
+                                      originalAfter;
+
+                                  // Add to history
+                                  _addToHistory(widget.song.lyrics);
+
+                                  // Clear selection
+                                  _selectedText = null;
+                                  _isSelecting = false;
+                                });
+
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      'Selection transposed by ${i > 0 ? '+' : ''}$i semitones',
+                                    ),
+                                    behavior: SnackBarBehavior.floating,
+                                    duration: const Duration(seconds: 2),
+                                  ),
+                                );
+                              },
+                              child: Text('${i > 0 ? '+' : ''}$i'),
+                            ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
