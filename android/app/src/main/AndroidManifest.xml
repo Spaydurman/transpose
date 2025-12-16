@@ -1,6 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application
-        android:label="try_flutter"
+        android:label="transpose_by_clark"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

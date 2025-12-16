@@ -1,6 +1,6 @@
 {
-    "name": "try_flutter",
-    "short_name": "try_flutter",
+    "name": "transpose_by_clark",
+    "short_name": "transpose",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
